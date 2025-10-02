@@ -1,8 +1,7 @@
 # -----------------------------------------------------------------------------
 # DoorsOS NexShell Bootloader 
 # -----------------------------------------------------------------------------
-# Copyright (C) 2015 The University of Notre Dame
-# Modified by XPDevs (2025) for DoorsOS / NexShell integration
+# Copyright (C) 2025 James Turner & (C) 2025 XPDevs
 # Licensed under GNU GPL v2 or later.
 # -----------------------------------------------------------------------------
 
@@ -64,14 +63,19 @@ _start2:
     mov     $2, %cl
 
 # -----------------------------------------------------------------------------
-# Kernel Loading Loop (With Slow Spinner)
+# Kernel Loading Loop
 # -----------------------------------------------------------------------------
 
 loadsector:
     mov     $1, %al
     mov     $0x02, %ah
     int     $0x13
-    jc     load_error     # jmp for debug jc for real
+    jc     load_error     
+
+#------------------------------------------------------------------
+# for use in the real NexShell jc must be set
+# when testing diffrent things and dont want to boot set to jmp
+#-------------------------------------------------------------------
 
     # Show progress slowly
     mov     $'.', %al
