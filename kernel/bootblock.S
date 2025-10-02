@@ -2,7 +2,6 @@
 # DoorsOS NexShell Bootloader 
 # -----------------------------------------------------------------------------
 # Copyright (C) 2025 James Turner & (C) 2025 XPDevs
-# Licensed under GNU GPL v2 or later.
 # -----------------------------------------------------------------------------
 
 .code16
