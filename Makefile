@@ -30,11 +30,16 @@ $(USER_PROGRAMS): $(USER_SOURCES) library/baselib.a $(LIBRARY_HEADERS)
 	cd user && make
 
 image: kernel/basekernel.img $(USER_PROGRAMS)
-	rm -rf image
-	mkdir image image/boot image/bin image/data
-	cp kernel/basekernel.img image/boot
-	cp $(USER_PROGRAMS) image/bin
-	if [ -f ${WORDS} ]; then head -2000 ${WORDS} > image/data/words; fi
+	rm -rf image 
+	mkdir -p image/boot image/shell 
+	cp kernel/basekernel.img image/boot 
+	@echo "------------------------------------------------"
+	@echo "Folders 'bin' and 'data' removed."
+	@echo "Folder 'shell' created for DoorsOS."
+	@echo "PLEASE DO WHAT YOU NEED IN THE FOLDER NOW."
+	@echo "------------------------------------------------"
+	@echo "Press Enter in this window to continue..."
+	@/bin/bash -c "read"
 
 basekernel.iso: image
 	${ISOGEN} -input-charset utf-8 -iso-level 2 -J -R -o $@ -b boot/basekernel.img image
@@ -43,7 +48,7 @@ disk.img:
 	qemu-img create disk.img 10M
 
 run: basekernel.iso disk.img
-	qemu-system-i386 -cdrom basekernel.iso -hda disk.img
+	qemu-system-i386 -cdrom basekernel.iso -hda disk.img 
 
 debug: basekernel.iso disk.img
 	qemu-system-i386 -cdrom basekernel.iso -hda disk.img -s -S &

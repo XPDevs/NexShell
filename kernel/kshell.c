@@ -273,7 +273,7 @@ static int kshell_execute(int argc, const char **argv)
     } else if (!strcmp(cmd, "neofetch")) {
         neofetch();
     } else if (!strcmp(cmd, "startGUI")) {
-        GUI();
+        start_gui();
     } else if (!strcmp(cmd, "list-drives")) {
         list_drives();
 // TEST COMMAND
@@ -360,22 +360,15 @@ if (current->ktable[KNO_STDDIR]) {
         if (bytes_read > 0) {
             buffer[bytes_read] = '\0';
             printf("\f%s\n", buffer);  // Clear screen before showing contents
+            printf("\n--- Press any key to continue ---\n");
+            console_getchar(&console_root);
+            printf("\f"); // Clear screen before returning to prompt
         } else {
             printf("File read failed or is empty\n");
         }
 
         kfree(buffer);
         sys_object_close(fd);
-
-        __asm__ __volatile__ (
-            "mov $100000000, %%ecx\n"
-            "1:\n"
-            "dec %%ecx\n"
-            "jnz 1b\n"
-            :
-            :
-            : "ecx"
-        );
     } else {
         printf("Usage: contents <filepath>\n");
     } 
@@ -557,7 +550,7 @@ printf("\f");
         default:
             printf("Cancelled.\n");
             printf("root@Doors: /core/NexShell# ");
-            return 0;
+            return;
     }
 }
 
@@ -754,33 +747,136 @@ reboot();
 /* --- Mouse Cursor Task (Background Version) --- */
 
 /* Globals for mouse state */
-static int ms_mx = 160;
-static int ms_my = 100;
+int ms_mx = 160;
+int ms_my = 100;
+int ms_left = 0;
+int ms_middle = 0;
 static int ms_cycle = 0;
 static uint8_t ms_packet[3];
-static uint8_t ms_prev_bg[64*3];
+static uint8_t ms_prev_bg[256*3];
 
-/* Cursor Sprite (8x8) */
-static const uint8_t ms_cursor[64] = {
-    3,3,0,0,0,0,0,0,
-    3,2,3,0,0,0,0,0,
-    3,2,2,3,0,0,0,0,
-    3,2,2,2,3,0,0,0,
-    3,2,3,3,3,0,0,0,
-    3,3,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0
+/* Cursor Sprite (16x16) */
+static const uint8_t ms_cursor_arrow[256] = {
+    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    1,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    1,2,2,1,0,0,0,0,0,0,0,0,0,0,0,0,
+    1,2,2,2,1,0,0,0,0,0,0,0,0,0,0,0,
+    1,2,2,2,2,1,0,0,0,0,0,0,0,0,0,0,
+    1,2,2,2,2,2,1,0,0,0,0,0,0,0,0,0,
+    1,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0,
+    1,2,2,2,2,2,2,2,1,0,0,0,0,0,0,0,
+    1,2,2,2,2,2,1,1,1,0,0,0,0,0,0,0,
+    1,2,2,1,2,2,1,0,0,0,0,0,0,0,0,0,
+    1,2,1,0,1,2,2,1,0,0,0,0,0,0,0,0,
+    1,1,0,0,1,2,2,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 };
 
+/* Click Cursor Sprite (16x16) - Hand Pointer */
+static const uint8_t ms_cursor_click[256] = {
+    0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,2,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,2,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,2,1,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,1,2,1,1,1,1,1,0,0,0,0,
+    0,0,0,0,0,1,2,1,2,1,1,1,1,1,0,0,
+    0,0,0,0,0,1,2,1,2,1,1,2,1,2,1,0,
+    0,0,1,1,0,1,2,2,2,2,2,2,1,2,1,0,
+    0,1,1,1,1,1,2,2,2,2,2,2,2,2,1,0,
+    0,1,1,2,1,1,2,2,2,2,2,2,2,2,1,0,
+    0,0,1,1,2,2,2,2,2,2,2,2,2,2,1,0,
+    0,0,0,1,1,2,2,2,2,2,2,2,2,2,1,0,
+    0,0,0,0,1,1,2,2,2,2,2,2,2,2,1,0,
+    0,0,0,0,0,1,1,2,2,2,2,2,2,1,0,0,
+    0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,
+    0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,
+};
+
+static const uint8_t *ms_active_cursor = ms_cursor_arrow;
+
 static const uint8_t ms_palette[4][3] = {
-    {0, 0, 0},       // Black / Background
-    {192, 192, 192}, // Light Grey (Classic Window Silver)
-    {255, 255, 255}, // Pure White
-    {255, 255, 255}  // Pure White (Secondary)
+    {0, 0, 0},       // Transparent
+    {0, 0, 0},       // Black (Outline)
+    {255, 255, 255}, // White (Fill)
+    {0, 0, 0}        // Unused
 };
 
 #define MS_WIDTH  video_xres
 #define MS_HEIGHT video_yres
+
+void mouse_set_cursor(int type) {
+    const uint8_t *new_cursor = (type == 1) ? ms_cursor_click : ms_cursor_arrow;
+    if (new_cursor == ms_active_cursor) return;
+
+    interrupt_block();
+    uint8_t *fb = (uint8_t*)video_buffer;
+    int pmx = ms_mx;
+    int pmy = ms_my;
+
+    // Restore background (erase old cursor)
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            if (pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                fb[offset + 0] = ms_prev_bg[(y*16+x)*3 + 0];
+                fb[offset + 1] = ms_prev_bg[(y*16+x)*3 + 1];
+                fb[offset + 2] = ms_prev_bg[(y*16+x)*3 + 2];
+            }
+        }
+    }
+
+    ms_active_cursor = new_cursor;
+
+    // Draw new cursor
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            uint8_t c = ms_active_cursor[y*16+x];
+            if (c && pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                fb[offset + 0] = ms_palette[c][0];
+                fb[offset + 1] = ms_palette[c][1];
+                fb[offset + 2] = ms_palette[c][2];
+            }
+        }
+    }
+    interrupt_unblock();
+}
+
+void mouse_refresh(void) {
+    interrupt_block();
+    uint8_t *fb = (uint8_t*)video_buffer;
+    int pmx = ms_mx;
+    int pmy = ms_my;
+
+    // 1. Capture New Background
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            if (pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                ms_prev_bg[(y*16+x)*3 + 0] = fb[offset + 0];
+                ms_prev_bg[(y*16+x)*3 + 1] = fb[offset + 1];
+                ms_prev_bg[(y*16+x)*3 + 2] = fb[offset + 2];
+            }
+        }
+    }
+
+    // 2. Draw New Cursor
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            uint8_t c = ms_active_cursor[y*16+x];
+            if (c && pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                fb[offset + 0] = ms_palette[c][0];
+                fb[offset + 1] = ms_palette[c][1];
+                fb[offset + 2] = ms_palette[c][2];
+            }
+        }
+    }
+    interrupt_unblock();
+}
 
 static void mouse_draw_handler(int intr, int code) {
     uint8_t status = inb(0x64);
@@ -792,6 +888,8 @@ static void mouse_draw_handler(int intr, int code) {
     if (ms_cycle == 0) {
         if (b & 0x08) {
             ms_packet[0] = b;
+            ms_left = (b & 0x01);
+            ms_middle = (b & 0x04) >> 2;
             ms_cycle++;
         }
     } else if (ms_cycle == 1) {
@@ -806,13 +904,13 @@ static void mouse_draw_handler(int intr, int code) {
         int pmy = ms_my;
 
         // 1. Restore Old Background
-        for (int y=0; y<8; y++) {
-            for (int x=0; x<8; x++) {
+        for (int y=0; y<16; y++) {
+            for (int x=0; x<16; x++) {
                 if (pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
                     int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
-                    fb[offset + 0] = ms_prev_bg[(y*8+x)*3 + 0];
-                    fb[offset + 1] = ms_prev_bg[(y*8+x)*3 + 1];
-                    fb[offset + 2] = ms_prev_bg[(y*8+x)*3 + 2];
+                    fb[offset + 0] = ms_prev_bg[(y*16+x)*3 + 0];
+                    fb[offset + 1] = ms_prev_bg[(y*16+x)*3 + 1];
+                    fb[offset + 2] = ms_prev_bg[(y*16+x)*3 + 2];
                 }
             }
         }
@@ -823,26 +921,26 @@ static void mouse_draw_handler(int intr, int code) {
 
         // 3. Clamp
         if (ms_mx < 0) ms_mx = 0;
-        if (ms_mx > MS_WIDTH-8) ms_mx = MS_WIDTH-8;
+        if (ms_mx > MS_WIDTH-16) ms_mx = MS_WIDTH-16;
         if (ms_my < 0) ms_my = 0;
-        if (ms_my > MS_HEIGHT-8) ms_my = MS_HEIGHT-8;
+        if (ms_my > MS_HEIGHT-16) ms_my = MS_HEIGHT-16;
 
         // 4. Save New Background
-        for (int y=0; y<8; y++) {
-            for (int x=0; x<8; x++) {
+        for (int y=0; y<16; y++) {
+            for (int x=0; x<16; x++) {
                 if (ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
                     int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
-                    ms_prev_bg[(y*8+x)*3 + 0] = fb[offset + 0];
-                    ms_prev_bg[(y*8+x)*3 + 1] = fb[offset + 1];
-                    ms_prev_bg[(y*8+x)*3 + 2] = fb[offset + 2];
+                    ms_prev_bg[(y*16+x)*3 + 0] = fb[offset + 0];
+                    ms_prev_bg[(y*16+x)*3 + 1] = fb[offset + 1];
+                    ms_prev_bg[(y*16+x)*3 + 2] = fb[offset + 2];
                 }
             }
         }
 
         // 5. Draw New Cursor
-        for (int y=0; y<8; y++) {
-            for (int x=0; x<8; x++) {
-                uint8_t c = ms_cursor[y*8+x];
+        for (int y=0; y<16; y++) {
+            for (int x=0; x<16; x++) {
+                uint8_t c = ms_active_cursor[y*16+x];
                 if (c && ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
                     int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
                     fb[offset + 0] = ms_palette[c][0];
@@ -857,21 +955,21 @@ static void mouse_draw_handler(int intr, int code) {
 void mouse_cursor_task(void) {
     // Capture initial background
     uint8_t *fb = (uint8_t*)video_buffer;
-    for (int y=0; y<8; y++) {
-        for (int x=0; x<8; x++) {
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
             if (ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
                 int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
-                ms_prev_bg[(y*8+x)*3 + 0] = fb[offset + 0];
-                ms_prev_bg[(y*8+x)*3 + 1] = fb[offset + 1];
-                ms_prev_bg[(y*8+x)*3 + 2] = fb[offset + 2];
+                ms_prev_bg[(y*16+x)*3 + 0] = fb[offset + 0];
+                ms_prev_bg[(y*16+x)*3 + 1] = fb[offset + 1];
+                ms_prev_bg[(y*16+x)*3 + 2] = fb[offset + 2];
             }
         }
     }
     
     // Draw initial cursor
-    for (int y=0; y<8; y++) {
-        for (int x=0; x<8; x++) {
-            uint8_t c = ms_cursor[y*8+x];
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            uint8_t c = ms_active_cursor[y*16+x];
             if (c && ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
                 int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
                 fb[offset + 0] = ms_palette[c][0];
@@ -887,112 +985,20 @@ void mouse_cursor_task(void) {
     interrupt_enable(44); // Ensure PIC enables it
 }
 
-int GUI() {
+extern int GUI();
+
+int start_gui() {
     printf("\nThe GUI is being started\n");
-    mouse_cursor_task();
-
-    int fd = sys_open_file(KNO_STDDIR, "/core/gui/render/boot.nex", 0, 0);
-    if (fd < 0) {
-        printf("Failed to open boot.nex\n");
-        return -1;
-    }
-
-    int pid = sys_process_run(fd, 0, 0);
-    if (pid <= 0) {
-        printf("Failed to start GUI process\n");
-        sys_object_close(fd);
-        return -1;
-    } else {
-        printf("GUI process started with PID %d\n", pid);
-        sys_object_close(fd);
-    }
-
-    // Draw pixel function using video_buffer instead of video_framebuffer
-    void graphics_draw_pixel(int x, int y, uint32_t color) {
-        if (x < 0 || y < 0 || x >= video_xres || y >= video_yres) return;
-        uint32_t *fb = (uint32_t *)video_buffer;
-        fb[y * video_xres + x] = color;
-    }
-
-    // Draw cursor function
-    void graphics_draw_cursor(int x, int y, const uint32_t *pixels, int width, int height) {
-        if (!pixels || width <= 0 || height <= 0) return;
-
-        for (int py = 0; py < height; py++) {
-            for (int px = 0; px < width; px++) {
-                uint32_t color = pixels[py * width + px];
-                if ((color >> 24) == 0) // skip transparent pixels
-                    continue;
-                graphics_draw_pixel(x + px, y + py, color);
-            }
-        }
-    }
-
-    // Cursor structure
-    typedef struct {
-        int width;
-        int height;
-        int hotspot_x;
-        int hotspot_y;
-        uint32_t *pixels;
-    } cursor_t;
-
-    // Load cursor from file function
-    int load_cursor_from_file(const char *path, cursor_t *cursor) {
-        int fd = sys_open_file(KNO_STDDIR, path, 0, 0);
-        if (fd < 0) {
-            printf("Failed to open cursor file: %s\n", path);
-            return -1;
-        }
-
-        char *buffer = kmalloc(16384);
-        if (!buffer) {
-            printf("Failed to allocate memory for cursor file\n");
-            sys_object_close(fd);
-            return -1;
-        }
-
-        int bytes_read = sys_object_read(fd, buffer, 16384);
-        if (bytes_read <= 0) {
-            printf("Failed to read cursor file\n");
-            kfree(buffer);
-            sys_object_close(fd);
-            return -1;
-        }
-
-        sys_object_close(fd);
-
-        cursor->width = 32;
-        cursor->height = 32;
-        cursor->hotspot_x = 0;
-        cursor->hotspot_y = 0;
-
-        cursor->pixels = kmalloc(cursor->width * cursor->height * sizeof(uint32_t));
-        if (!cursor->pixels) {
-            printf("Failed to allocate cursor pixels\n");
-            kfree(buffer);
-            return -1;
-        }
-
-        for (int i = 0; i < cursor->width * cursor->height; i++) {
-            cursor->pixels[i] = 0xFFFF0000;
-        }
-
-        kfree(buffer);
-        return 0;
-    }
-
-    // Draw cursor now
-    cursor_t cursor;
-    if (load_cursor_from_file("/core/gui/cursor/main.cur", &cursor) == 0) {
-        int cursor_x = video_xres / 2;
-        int cursor_y = video_yres / 2;
-        graphics_draw_cursor(cursor_x - cursor.hotspot_x, cursor_y - cursor.hotspot_y, cursor.pixels, cursor.width, cursor.height);
-    } else {
-        printf("Failed to load cursor\n");
-    }
-
-    return 0;
+        __asm__ __volatile__ (
+        "mov $400000000, %%ecx\n"
+        "1:\n"
+        "dec %%ecx\n"
+        "jnz 1b\n"
+        :
+        :
+        : "ecx"
+    );
+    return GUI();
 }
 
 
@@ -1040,9 +1046,19 @@ printf("\f");
         :
         : "ecx"
     );
+        //launch the cursor before the main things
+        mouse_cursor_task();
 
 // then go straight into the GUI but command line if it has any errors
-GUI();
+start_gui();
+
+	// When GUI exits, it leaves us in graphics mode.
+	// Reset the foreground/background colors for the console.
+	struct graphics_color white = {255, 255, 255, 0};
+	struct graphics_color black = {0, 0, 0, 0};
+	graphics_fgcolor(&graphics_root, white);
+	graphics_bgcolor(&graphics_root, black);
+	printf("\f"); // Clear screen with new background color
 
 	while(1) {
                printf("\n");
