@@ -38,7 +38,7 @@ struct keymap {
 };
 
 static struct keymap keymap[] = {
-#include "keymap.us.pc.c"
+#include "keymap.uk.pc.c"
 };
 
 static int shift_mode = 0;
@@ -137,9 +137,4 @@ void keyboard_init()
 {
 	interrupt_register(33, keyboard_interrupt);
 	interrupt_enable(33);
-	printf("keyboard: ready\n");
 }
-
-
-
-

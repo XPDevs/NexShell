@@ -245,5 +245,4 @@ void mouse_init()
 	interrupt_register(44, mouse_interrupt);
 	interrupt_enable(44);
 
-	printf("mouse: ready\n");
 }

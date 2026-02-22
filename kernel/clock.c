@@ -76,5 +76,4 @@ void clock_init()
 	interrupt_register(32, clock_interrupt);
 	interrupt_enable(32);
 
-	printf("clock: ticking\n");
 }

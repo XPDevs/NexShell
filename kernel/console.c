@@ -29,7 +29,6 @@ static struct graphics_color fgcolor = { 255, 255, 255 };
 // New boot message function
 void bootmsg(struct console *c) {
         console_putstring(c, "\f\n");
-	console_putstring(c, "NexShell is starting up!\n");
     __asm__ __volatile__ (
         "mov $400000000, %%ecx\n"
         "1:\n"
@@ -47,7 +46,6 @@ struct console * console_create_root()
 	console_root.gx = window_graphics(console_root.window);
 	console_reset(&console_root);
 	bootmsg(&console_root);
-	console_putstring(&console_root,"\nconsole: initialized\n");
 	return &console_root;
 }
 
