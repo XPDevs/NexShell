@@ -13,6 +13,8 @@ The current version is 1.2.9
 #include "kernel/types.h"
 #include "kernel/error.h"
 #include "kernel/ascii.h"
+#include "ioports.h"
+#include "interrupt.h"
 #include "kshell.h"
 #include "console.h"
 #include "string.h"
@@ -404,7 +406,7 @@ if (current->ktable[KNO_STDDIR]) {
         printf("unmount\n");
         printf("help <command>\n");
         printf("contents <file>\n");
-        printf("list-drives");
+        printf("list-drives\n");
         printf("cowsay\n\n");
         printf("Keybourd combinations:\n");
         printf("control (ctrl) + e This will exit a program\n");
@@ -438,11 +440,6 @@ int kshell_readline(char *line, int length)
             shutdown_user();
             return 0;
         } else if ((unsigned char)c == 0x0D) {  // Ctrl+M or Enter
-            // Intercept Ctrl+M specifically to run FORCE_MENU
-            if (i == 0) { // only if nothing typed
-                FORCE_MENU(); // ← your function here
-                continue;     // don't process as command
-            }
 
             // Normal Enter behaviour
             line[i] = '\0';
@@ -748,18 +745,151 @@ reboot();
 
 }
 
-int GUI() {
-    printf("\nThe GUI is being loaded, please wait...\n");
+/* * Self-contained Mouse Cursor Task
+ * Extracted from test.asm and converted to C.
+ * * Assumes VGA Mode 13h (320x200, 256 colors) is already set.
+ * Video memory at 0xA0000.
+ */
 
-    __asm__ __volatile__ (
-        "mov $400000000, %%ecx\n"
-        "1:\n"
-        "dec %%ecx\n"
-        "jnz 1b\n"
-        :
-        :
-        : "ecx"
-    );
+/* --- Mouse Cursor Task (Background Version) --- */
+
+/* Globals for mouse state */
+static int ms_mx = 160;
+static int ms_my = 100;
+static int ms_cycle = 0;
+static uint8_t ms_packet[3];
+static uint8_t ms_prev_bg[64*3];
+
+/* Cursor Sprite (8x8) */
+static const uint8_t ms_cursor[64] = {
+    3,3,0,0,0,0,0,0,
+    3,2,3,0,0,0,0,0,
+    3,2,2,3,0,0,0,0,
+    3,2,2,2,3,0,0,0,
+    3,2,3,3,3,0,0,0,
+    3,3,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0
+};
+
+static const uint8_t ms_palette[4][3] = {
+    {0, 0, 0},       // Black / Background
+    {192, 192, 192}, // Light Grey (Classic Window Silver)
+    {255, 255, 255}, // Pure White
+    {255, 255, 255}  // Pure White (Secondary)
+};
+
+#define MS_WIDTH  video_xres
+#define MS_HEIGHT video_yres
+
+static void mouse_draw_handler(int intr, int code) {
+    uint8_t status = inb(0x64);
+    if (!(status & 0x01)) return;
+    if (!(status & 0x20)) return; // Only process AUX data
+    
+    uint8_t b = inb(0x60);
+    
+    if (ms_cycle == 0) {
+        if (b & 0x08) {
+            ms_packet[0] = b;
+            ms_cycle++;
+        }
+    } else if (ms_cycle == 1) {
+        ms_packet[1] = b;
+        ms_cycle++;
+    } else if (ms_cycle == 2) {
+        ms_packet[2] = b;
+        ms_cycle = 0;
+
+        uint8_t *fb = (uint8_t*)video_buffer;
+        int pmx = ms_mx;
+        int pmy = ms_my;
+
+        // 1. Restore Old Background
+        for (int y=0; y<8; y++) {
+            for (int x=0; x<8; x++) {
+                if (pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                    int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                    fb[offset + 0] = ms_prev_bg[(y*8+x)*3 + 0];
+                    fb[offset + 1] = ms_prev_bg[(y*8+x)*3 + 1];
+                    fb[offset + 2] = ms_prev_bg[(y*8+x)*3 + 2];
+                }
+            }
+        }
+
+        // 2. Update Position
+        ms_mx += (char)ms_packet[1];
+        ms_my -= (char)ms_packet[2];
+
+        // 3. Clamp
+        if (ms_mx < 0) ms_mx = 0;
+        if (ms_mx > MS_WIDTH-8) ms_mx = MS_WIDTH-8;
+        if (ms_my < 0) ms_my = 0;
+        if (ms_my > MS_HEIGHT-8) ms_my = MS_HEIGHT-8;
+
+        // 4. Save New Background
+        for (int y=0; y<8; y++) {
+            for (int x=0; x<8; x++) {
+                if (ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
+                    int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
+                    ms_prev_bg[(y*8+x)*3 + 0] = fb[offset + 0];
+                    ms_prev_bg[(y*8+x)*3 + 1] = fb[offset + 1];
+                    ms_prev_bg[(y*8+x)*3 + 2] = fb[offset + 2];
+                }
+            }
+        }
+
+        // 5. Draw New Cursor
+        for (int y=0; y<8; y++) {
+            for (int x=0; x<8; x++) {
+                uint8_t c = ms_cursor[y*8+x];
+                if (c && ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
+                    int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
+                    fb[offset + 0] = ms_palette[c][0];
+                    fb[offset + 1] = ms_palette[c][1];
+                    fb[offset + 2] = ms_palette[c][2];
+                }
+            }
+        }
+    }
+}
+
+void mouse_cursor_task(void) {
+    // Capture initial background
+    uint8_t *fb = (uint8_t*)video_buffer;
+    for (int y=0; y<8; y++) {
+        for (int x=0; x<8; x++) {
+            if (ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
+                int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
+                ms_prev_bg[(y*8+x)*3 + 0] = fb[offset + 0];
+                ms_prev_bg[(y*8+x)*3 + 1] = fb[offset + 1];
+                ms_prev_bg[(y*8+x)*3 + 2] = fb[offset + 2];
+            }
+        }
+    }
+    
+    // Draw initial cursor
+    for (int y=0; y<8; y++) {
+        for (int x=0; x<8; x++) {
+            uint8_t c = ms_cursor[y*8+x];
+            if (c && ms_mx+x < MS_WIDTH && ms_my+y < MS_HEIGHT) {
+                int offset = ((ms_my+y)*MS_WIDTH + (ms_mx+x)) * 3;
+                fb[offset + 0] = ms_palette[c][0];
+                fb[offset + 1] = ms_palette[c][1];
+                fb[offset + 2] = ms_palette[c][2];
+            }
+        }
+    }
+
+    // Register Interrupt Handler for IRQ 12 (INT 44)
+    // This replaces the default handler in kernel/mouse.c
+    interrupt_register(44, mouse_draw_handler);
+    interrupt_enable(44); // Ensure PIC enables it
+}
+
+int GUI() {
+    printf("\nThe GUI is being started\n");
+    mouse_cursor_task();
 
     int fd = sys_open_file(KNO_STDDIR, "/core/gui/render/boot.nex", 0, 0);
     if (fd < 0) {
@@ -873,9 +1003,9 @@ void neofetch() {
 
     printf("\n");
     printf("|----------------------------------------------------------|\n");
-    printf("|                     NexShell v3.6.9-DEV                  |\n");
-    printf("|                  (C)Copyright 2025 XPDevs                |\n");
-    printf("|                  Build id: NS127-0425-S1                 |\n");
+    printf("|                       NexShell v12.3                     |\n");
+    printf("|                  (C)Copyright 2026 XPDevs                |\n");
+    printf("|                     Build id: JN210126                   |\n");
     printf("|----------------------------------------------------------|\n");
     printf("| Architecture: %s\n", architecture);
     printf("| Shell: %s\n", shell);
