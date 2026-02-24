@@ -31,7 +31,7 @@ static const char *html_content =
 <!DOCTYPE html> \
 <html> \
 <head> \
-    <title>Ramona's Page</title> \
+    <title>test Page</title> \
     <style> \
         body { \
             background-color: black; \
@@ -57,7 +57,7 @@ static const char *html_content =
     </script> \
 </head> \
 <body> \
-    <h1>Hello, I'm Ramona.</h1> \
+    <h1>Welcome to the test page</h1> \
     <br> \
     <button onclick=\"goBack()\">Go Back</button> \
 </body> \
