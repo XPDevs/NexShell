@@ -30,6 +30,7 @@ The current version is 1.2.9
 #include "bcache.h"
 #include "printf.h"
 #include "graphics.h" // Include your graphics header
+#include "memorylayout.h"
 
 // define the start screen for when the gui starts
 #define COLOR_BLUE  0x0000FF      // RGB hex for blue (blue channel max)
@@ -39,6 +40,8 @@ The current version is 1.2.9
 #define PM1a_CNT_BLK 0xB004      // Example ACPI PM1a control port (adjust per your ACPI)
 #define SLP_TYP1    (0x5 << 10)  // Sleep type 1 for shutdown (example value)
 #define SLP_EN      (1 << 13)
+
+static char current_working_directory[1024] = "/";
 
 static int kshell_mount( const char *devname, int unit, const char *fs_type)
 {
@@ -56,6 +59,7 @@ static int kshell_mount( const char *devname, int unit, const char *fs_type)
 				struct fs_dirent *d = fs_volume_root(v);
 				if(d) {
 					current->ktable[KNO_STDDIR] = kobject_create_dir(d);
+					strcpy(current_working_directory, "/");
 					return 0;
 				} else {
 					printf("mount: couldn't find root dir on %s unit %d!\n",device_name(dev),device_unit(dev));
@@ -135,7 +139,6 @@ int simplefs_format(struct device *dev) {
 
     return 1;
 }
-
 
 static int kshell_execute(int argc, const char **argv)
 {
@@ -235,6 +238,194 @@ static int kshell_execute(int argc, const char **argv)
         printf("use: mkdir <parent-dir> <dirname>\n");
     }
 
+} else if (!strcmp(cmd, "cd")) {
+    if (argc > 1) {
+        struct fs_dirent *newdir = fs_resolve(argv[1]);
+        if (newdir) {
+            if (fs_dirent_isdir(newdir)) {
+                struct kobject *old = current->ktable[KNO_STDDIR];
+                current->ktable[KNO_STDDIR] = kobject_create_dir(newdir);
+                if (old) kobject_close(old);
+
+                if (argv[1][0] == '/') {
+                    strcpy(current_working_directory, argv[1]);
+                } else {
+                    if (strcmp(argv[1], "..") == 0) {
+                        int len = strlen(current_working_directory);
+                        if (len > 1) {
+                            while (len > 0 && current_working_directory[len-1] != '/') {
+                                len--;
+                            }
+                            if (len > 1 && current_working_directory[len-1] == '/') len--;
+                            current_working_directory[len] = 0;
+                        }
+                    } else if (strcmp(argv[1], ".") != 0) {
+                        int len = strlen(current_working_directory);
+                        if (len > 1 && current_working_directory[len-1] != '/') {
+                            strcat(current_working_directory, "/");
+                        }
+                        strcat(current_working_directory, argv[1]);
+                    }
+                }
+            } else {
+                printf("cd: %s is not a directory\n", argv[1]);
+                fs_dirent_close(newdir);
+            }
+        } else {
+            printf("cd: %s not found\n", argv[1]);
+        }
+    } else {
+        printf("cd: argument required\n");
+    }
+} else if (!strcmp(cmd, "pwd")) {
+    printf("%s\n", current_working_directory);
+} else if (!strcmp(cmd, "touch")) {
+    if (argc > 1) {
+        char *path = strdup(argv[1]);
+        char *last_slash = 0;
+        char *p = path;
+        while(*p) { if(*p=='/') last_slash=p; p++; }
+        
+        struct fs_dirent *parent;
+        char *name;
+        
+        if (last_slash) {
+            *last_slash = 0;
+            name = last_slash + 1;
+            if (path[0] == 0 && last_slash == path) parent = fs_resolve("/");
+            else parent = fs_resolve(path);
+        } else {
+            name = path;
+            parent = fs_resolve(".");
+        }
+        
+        if (parent) {
+            if (fs_dirent_isdir(parent)) {
+                struct fs_dirent *f = fs_dirent_mkfile(parent, name);
+                if (f) fs_dirent_close(f);
+                else printf("touch: failed to create %s\n", argv[1]);
+            } else {
+                printf("touch: parent is not a directory\n");
+            }
+            fs_dirent_close(parent);
+        } else {
+            printf("touch: path not found\n");
+        }
+        kfree(path);
+    } else {
+        printf("touch: missing operand\n");
+    }
+} else if (!strcmp(cmd, "rm")) {
+    if (argc > 1) {
+        char *path = strdup(argv[1]);
+        char *last_slash = 0;
+        char *p = path;
+        while(*p) { if(*p=='/') last_slash=p; p++; }
+        
+        struct fs_dirent *parent;
+        char *name;
+        
+        if (last_slash) {
+            *last_slash = 0;
+            name = last_slash + 1;
+            if (path[0] == 0 && last_slash == path) parent = fs_resolve("/");
+            else parent = fs_resolve(path);
+        } else {
+            name = path;
+            parent = fs_resolve(".");
+        }
+        
+        if (parent) {
+            if (fs_dirent_remove(parent, name) != 0) {
+                printf("rm: failed to remove %s\n", argv[1]);
+            }
+            fs_dirent_close(parent);
+        } else {
+            printf("rm: path not found\n");
+        }
+        kfree(path);
+    } else {
+        printf("rm: missing operand\n");
+    }
+} else if (!strcmp(cmd, "cp") || !strcmp(cmd, "mv")) {
+    if (argc == 3) {
+        struct fs_dirent *src = fs_resolve(argv[1]);
+        if (src) {
+            char *path = strdup(argv[2]);
+            char *last_slash = 0;
+            char *p = path;
+            while(*p) { if(*p=='/') last_slash=p; p++; }
+            
+            struct fs_dirent *dest_dir;
+            char *dest_name;
+            
+            if (last_slash) {
+                *last_slash = 0;
+                dest_name = last_slash + 1;
+                if (path[0] == 0 && last_slash == path) dest_dir = fs_resolve("/");
+                else dest_dir = fs_resolve(path);
+            } else {
+                dest_name = path;
+                dest_dir = fs_resolve(".");
+            }
+
+            if (dest_dir) {
+                if (fs_dirent_isdir(dest_dir)) {
+                    struct fs_dirent *dst = fs_dirent_mkfile(dest_dir, dest_name);
+                    if (dst) {
+                        char *buf = kmalloc(4096);
+                        if (buf) {
+                            int offset = 0;
+                            int r;
+                            while ((r = fs_dirent_read(src, buf, 4096, offset)) > 0) {
+                                fs_dirent_write(dst, buf, r, offset);
+                                offset += r;
+                            }
+                            kfree(buf);
+                            if (!strcmp(cmd, "mv")) {
+                                char *srcpath = strdup(argv[1]);
+                                char *src_last_slash = 0;
+                                char *sp = srcpath;
+                                while(*sp) { if(*sp=='/') src_last_slash=sp; sp++; }
+                                struct fs_dirent *src_parent;
+                                char *src_name;
+                                if (src_last_slash) {
+                                    *src_last_slash = 0;
+                                    src_name = src_last_slash + 1;
+                                    if (srcpath[0] == 0 && src_last_slash == srcpath) src_parent = fs_resolve("/");
+                                    else src_parent = fs_resolve(srcpath);
+                                } else {
+                                    src_name = srcpath;
+                                    src_parent = fs_resolve(".");
+                                }
+                                if (src_parent) {
+                                    fs_dirent_remove(src_parent, src_name);
+                                    fs_dirent_close(src_parent);
+                                }
+                                kfree(srcpath);
+                            }
+                        } else {
+                            printf("%s: out of memory\n", cmd);
+                        }
+                        fs_dirent_close(dst);
+                    } else {
+                        printf("%s: failed to create %s\n", cmd, argv[2]);
+                    }
+                } else {
+                    printf("%s: destination parent is not a directory\n", cmd);
+                }
+                fs_dirent_close(dest_dir);
+            } else {
+                printf("%s: destination directory not found\n", cmd);
+            }
+            kfree(path);
+            fs_dirent_close(src);
+        } else {
+            printf("%s: source %s not found\n", cmd, argv[1]);
+        }
+    } else {
+        printf("%s: usage %s <src> <dst>\n", cmd, cmd);
+    }
 } else if (!strcmp(cmd, "reboot")) {
         reboot_user();
    } else if (!strcmp(cmd, "shutdown")) {
@@ -356,7 +547,7 @@ if (current->ktable[KNO_STDDIR]) {
             return 0;
         }
 
-        int bytes_read = sys_object_read(fd, buffer, 4096);
+        int bytes_read = sys_object_read(fd, buffer, 4096, 0);
         if (bytes_read > 0) {
             buffer[bytes_read] = '\0';
             printf("\f%s\n", buffer);  // Clear screen before showing contents
@@ -372,6 +563,13 @@ if (current->ktable[KNO_STDDIR]) {
     } else {
         printf("Usage: contents <filepath>\n");
     } 
+} else if (!strcmp(cmd, "panic")) {
+    if (argc > 1 && !strcmp(argv[1], "12345678")) {
+        current = 0;
+        __asm__ __volatile__("ud2");
+    } else {
+        printf("Access Denied\n");
+    }
 } else if (!strcmp(cmd, "echo")) {
     if (argc > 1) {
         for (int i = 1; i < argc; i++) {
@@ -401,6 +599,12 @@ if (current->ktable[KNO_STDDIR]) {
         printf("contents <file>\n");
         printf("list-drives\n");
         printf("cowsay\n\n");
+        printf("cd <dir>\n");
+        printf("pwd\n");
+        printf("touch <file>\n");
+        printf("rm <file>\n");
+        printf("cp <src> <dst>\n");
+        printf("mv <src> <dst>\n");
         printf("Keybourd combinations:\n");
         printf("control (ctrl) + e This will exit a program\n");
         printf("control (ctrl) + w This will show the last command the user used\n\n");
@@ -421,10 +625,15 @@ int ctrl_e(char c) {
     return 1; // continue as normal
 }
 
+#define HISTORY_MAX 20
+static char cmd_history[HISTORY_MAX][1024];
+static int history_count = 0;
+
 int kshell_readline(char *line, int length)
 {
     static char last_command[1024] = {0};
     int i = 0;
+    int history_view_index = history_count;
 
     while (i < (length - 1)) {
         int c = console_getchar(&console_root);
@@ -441,6 +650,16 @@ int kshell_readline(char *line, int length)
             if (i > 0) {
                 strncpy(last_command, line, sizeof(last_command) - 1);
                 last_command[sizeof(last_command) - 1] = '\0';
+
+                if (history_count < HISTORY_MAX) {
+                    strcpy(cmd_history[history_count], line);
+                    history_count++;
+                } else {
+                    for (int j = 0; j < HISTORY_MAX - 1; j++) {
+                        strcpy(cmd_history[j], cmd_history[j+1]);
+                    }
+                    strcpy(cmd_history[HISTORY_MAX - 1], line);
+                }
             }
 
             return 1;
@@ -448,6 +667,32 @@ int kshell_readline(char *line, int length)
             if (i > 0) {
                 i--;
                 printf("\b \b");
+            }
+        } else if ((unsigned char)c == KEY_UP) {
+            if (history_view_index > 0) {
+                history_view_index--;
+                while(i > 0) {
+                    printf("\b \b");
+                    i--;
+                }
+                strcpy(line, cmd_history[history_view_index]);
+                i = strlen(line);
+                printf("%s", line);
+            }
+        } else if ((unsigned char)c == KEY_DOWN) {
+            if (history_view_index < history_count) {
+                history_view_index++;
+                while(i > 0) {
+                    printf("\b \b");
+                    i--;
+                }
+                if (history_view_index < history_count) {
+                    strcpy(line, cmd_history[history_view_index]);
+                } else {
+                    line[0] = 0;
+                }
+                i = strlen(line);
+                printf("%s", line);
             }
         } else if ((unsigned char)c == 0x17) { // Ctrl+W
             printf("\nLast command: %s\n", last_command);
@@ -878,6 +1123,25 @@ void mouse_refresh(void) {
     interrupt_unblock();
 }
 
+void mouse_hide(void) {
+    interrupt_block();
+    uint8_t *fb = (uint8_t*)video_buffer;
+    int pmx = ms_mx;
+    int pmy = ms_my;
+
+    for (int y=0; y<16; y++) {
+        for (int x=0; x<16; x++) {
+            if (pmx+x < MS_WIDTH && pmy+y < MS_HEIGHT) {
+                int offset = ((pmy+y)*MS_WIDTH + (pmx+x)) * 3;
+                fb[offset + 0] = ms_prev_bg[(y*16+x)*3 + 0];
+                fb[offset + 1] = ms_prev_bg[(y*16+x)*3 + 1];
+                fb[offset + 2] = ms_prev_bg[(y*16+x)*3 + 2];
+            }
+        }
+    }
+    interrupt_unblock();
+}
+
 static void mouse_draw_handler(int intr, int code) {
     uint8_t status = inb(0x64);
     if (!(status & 0x01)) return;
@@ -988,16 +1252,6 @@ void mouse_cursor_task(void) {
 extern int GUI();
 
 int start_gui() {
-    printf("\nThe GUI is being started\n");
-        __asm__ __volatile__ (
-        "mov $400000000, %%ecx\n"
-        "1:\n"
-        "dec %%ecx\n"
-        "jnz 1b\n"
-        :
-        :
-        : "ecx"
-    );
     return GUI();
 }
 
@@ -1006,6 +1260,8 @@ int start_gui() {
 void neofetch() {
     const char *architecture = "x86";
     const char *shell = "Kshell";
+    uint16_t width = *(uint16_t*)BOOT_INFO_SCREEN_WIDTH;
+    uint16_t height = *(uint16_t*)BOOT_INFO_SCREEN_HEIGHT;
 
     printf("\n");
     printf("|----------------------------------------------------------|\n");
@@ -1015,7 +1271,18 @@ void neofetch() {
     printf("|----------------------------------------------------------|\n");
     printf("| Architecture: %s\n", architecture);
     printf("| Shell: %s\n", shell);
-    printf("| Video: %d x %d\n", video_xres, video_yres);
+    printf("| Video: %d x %d (%d, %d)\n", width, height, width / 2, height / 2);
+    printf("| Memory: %d MB", total_memory);
+    if (total_memory >= 1024) {
+        if (total_memory % 1024 == 0) {
+            printf(" (%d GB)", total_memory / 1024);
+        } else {
+            int gb = total_memory / 1024;
+            int dec = ((total_memory % 1024) * 10) / 1024;
+            printf(" (%d.%d GB)", gb, dec);
+        }
+    }
+    printf("\n");
     printf("| Kernel size: %d bytes\n", kernel_size);
     printf("|----------------------------------------------------------|\n\n");
 }
@@ -1029,23 +1296,12 @@ int kshell_launch()
 // everything past here for control
 printf("ACPI: initialized");
 
-    // Try to mount the root filesystem
-    printf("\nMounting root filesystem\n");
-
-automount();
 
 // after automounting the disk clear the screen for more space for displaying content after that wait to ensure nothing feels to rushed
-// clear
+automount();
+
 printf("\f");
-    __asm__ __volatile__ (
-        "mov $400000000, %%ecx\n"
-        "1:\n"
-        "dec %%ecx\n"
-        "jnz 1b\n"
-        :
-        :
-        : "ecx"
-    );
+// clear
         //launch the cursor before the main things
         mouse_cursor_task();
 
@@ -1062,7 +1318,7 @@ start_gui();
 
 	while(1) {
                printf("\n");
-		printf("root@Doors: /core/NexShell# ");
+		printf("root@nexshell:%s$ ", current_working_directory);
 		kshell_readline(line, sizeof(line));
 
 		argc = 0;

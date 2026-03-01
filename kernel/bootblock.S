@@ -76,11 +76,6 @@ loadsector:
 # when testing diffrent things and dont want to boot set to jmp
 #-------------------------------------------------------------------
 
-    # Show progress slowly
-    mov     $'.', %al
-    call    bios_putchar
-    call    dot_delay
-
     mov     (sectors_left), %ax
     cmp     $0xffff, %ax
     jne     gotsectors
@@ -145,29 +140,6 @@ load_error:
     mov     $(errormsg), %si
     call    bios_putstring
 
-ask_reboot:
-    mov     $(rebootmsg), %si
-    call    bios_putstring
-
-wait_key:
-    call    bios_getkey
-    cmpb    $0, %al
-    je      wait_key
-
-    cmpb    $'Y', %al
-    je      reboot_system
-    cmpb    $'y', %al
-    je      reboot_system
-    cmpb    $'N', %al
-    je      halt_loop
-    cmpb    $'n', %al
-    je      halt_loop
-    jmp     wait_key
-
-reboot_system:
-    mov     $0, %ax
-    int     $0x19
-
 halt_loop:
     hlt
     jmp     halt_loop
@@ -177,13 +149,53 @@ halt_loop:
 # -----------------------------------------------------------------------------
 
 set_video_mode:
+    # Get VBE mode information for mode 0x101
+    push    %es
+    mov     $0x0800, %ax
+    mov     %ax, %es            # es = 0x0800, for temp buffer
+    xor     %di, %di            # es:di = 0x8000
+    mov     $0x4F01, %ax
+    mov     $0x101, %cx
+    int     $0x10
+    cmp     $0x004F, %ax
+    jne     .fail
+
+    # VBE call successful, get dimensions
+    # Reload es to ensure it points to the buffer
+    mov     $0x0800, %ax
+    mov     %ax, %es
+    movw    %es:0x12, %cx # XResolution
+    movw    %es:0x14, %dx # YResolution
+    pop     %es
+
+    # Store dimensions at 0x9000
+    push    %es
+    mov     $0x0900, %ax
+    mov     %ax, %es
+    movw    %cx, %es:0
+    movw    %dx, %es:2
+    pop     %es
+
+    # Set video mode
     mov     $0x4F02, %ax
-    mov     $0x101, %bx
+    mov     $0x4101, %bx       # Mode 0x101 with Linear Frame Buffer (bit 14)
     int     $0x10
     jc      set_text_mode
     ret
 
+.fail:
+    pop     %es
+    jmp     set_text_mode
+
 set_text_mode:
+    # Store default dimensions at 0x9000
+    push    %es
+    mov     $0x0900, %ax
+    mov     %ax, %es
+    movw    $80, %es:0
+    movw    $25, %es:2
+    pop     %es
+
     mov     $0x00, %ah
     mov     $0x03, %al
     int     $0x10
@@ -219,38 +231,18 @@ bios_putchar:
     pop     %ax
     ret
 
-bios_getkey:
-    mov     $0x00, %ah
-    int     $0x16
-    ret
-
-# -----------------------------------------------------------------------------
-# Simple Delay (dot spinner)
-# -----------------------------------------------------------------------------
-
-dot_delay:
-    push    %cx
-    mov     $0xFFFF, %cx
-.delay_loop:
-    loop    .delay_loop
-    pop     %cx
-    ret
-
 # -----------------------------------------------------------------------------
 # System Messages
 # -----------------------------------------------------------------------------
 
 loadmsg:
-    .asciz "[SYSTEM] Loading NexShell!"
+    .asciz "Loading NexShell..."
 
 bootmsg:
-    .asciz "\r\n[SYSTEM] Booting NexShell!"
+    .asciz "\r\nBooting DoorsOS..."
 
 errormsg:
-    .asciz "\r\n[SYSTEM ERROR] Failed to load NexShell. Halting."
-
-rebootmsg:
-    .asciz "\r\nDo you want to reboot? (Y/N):\n"
+    .asciz "\r\nError."
 
 # -----------------------------------------------------------------------------
 # BIOS Disk Info

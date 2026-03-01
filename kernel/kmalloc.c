@@ -31,6 +31,15 @@ free and has no next or previous chunks.
 
 void kmalloc_init(char *start, int length)
 {
+	// Ensure the memory is actually accessible before initializing
+	volatile char *probe = start;
+	*probe = 0x55;
+	if (*probe != 0x55) {
+		printf("kmalloc: memory detection failed at %x\n", start);
+		return;
+	}
+	*probe = 0;
+
 	head = (struct kmalloc_chunk *) start;
 	head->state = KMALLOC_STATE_FREE;
 	head->length = length;

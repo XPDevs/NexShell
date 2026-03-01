@@ -78,3 +78,11 @@ grow down.  Addresses below 0x80000000 are all supervisor mode.
 
 #define PROCESS_ENTRY_POINT 0x80000000
 #define PROCESS_STACK_INIT  0xfffffff0
+
+/*
+The bootloader passes information to the kernel in a structure
+located at this fixed address.
+*/
+#define BOOT_INFO_START         0x9000
+#define BOOT_INFO_SCREEN_WIDTH  (BOOT_INFO_START + 0)
+#define BOOT_INFO_SCREEN_HEIGHT (BOOT_INFO_START + 2)

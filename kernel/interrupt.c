@@ -10,6 +10,8 @@ See the file LICENSE for details.
 #include "process.h"
 #include "kernelcore.h"
 #include "x86.h"
+#include "graphics.h"
+#include "ioports.h"
 
 static interrupt_handler_t interrupt_handler_table[48];
 static uint32_t interrupt_count[48];
@@ -33,6 +35,32 @@ static const char *exception_names[] = {
 	"page fault",
 	"unknown",
 	"coprocessor error"
+};
+
+/*
+ * Exception Error Codes
+ * These codes are displayed on the blue screen of death.
+ * 0: 0x4E530000 - Division by zero
+ * 1: 0x4E530001 - Debug exception
+ * 2: 0x4E530002 - Nonmaskable interrupt
+ * 3: 0x4E530003 - Breakpoint
+ * 4: 0x4E530004 - Overflow
+ * 5: 0x4E530005 - Bounds check
+ * 6: 0x4E530006 - Invalid instruction
+ * 7: 0x4E530007 - Coprocessor error
+ * 8: 0x4E530008 - Double fault
+ * 9: 0x4E530009 - Coprocessor overrun
+ * 10: 0x4E53000A - Invalid task
+ * 11: 0x4E53000B - Segment not present
+ * 12: 0x4E53000C - Stack exception
+ * 13: 0x4E53000D - General protection fault
+ * 14: 0x4E53000E - Page fault
+ * 15: 0x4E53000F - Unknown
+ * 16: 0x4E530010 - Coprocessor error
+ */
+static const uint32_t exception_codes[] = {
+	0x4E530000, 0x4E530001, 0x4E530002, 0x4E530003, 0x4E530004, 0x4E530005, 0x4E530006, 0x4E530007,
+	0x4E530008, 0x4E530009, 0x4E53000A, 0x4E53000B, 0x4E53000C, 0x4E53000D, 0x4E53000E, 0x4E53000F, 0x4E530010
 };
 
 static void unknown_exception(int i, int code)
@@ -68,15 +96,68 @@ static void unknown_exception(int i, int code)
 			return;
 		}
 	} else {
-		printf("interrupt: exception %d: %s (code %x)\n", i, exception_names[i], code);
-		process_dump(current);
+		if (current) {
+			printf("interrupt: exception %d: %s (code %x)\n", i, exception_names[i], code);
+			process_dump(current);
+		}
 	}
 
 	if(current) {
 		process_exit(0);
 	} else {
-		printf("interrupt: exception in kernel code!\n");
-		halt();
+		
+		// Establish the DoorsOS Panic Palette
+// Establish the DoorsOS Panic Palette (Urgent Red)
+struct graphics_color red = {255, 0, 0, 0};   // Full Red, 0 Green, 0 Blue
+struct graphics_color white = {255, 255, 255, 0};
+
+// Set the console: White text on a Red background
+console_set_color(white, red);
+        
+        printf("\f"); // Clear screen to blue
+
+        // Header - Using the specific XP phrasing
+        printf("A problem has been detected and DoorsOS has been shut down to prevent damage\n");
+        printf("to your computer.\n\n");
+        
+        printf("The problem seems to be caused by the following execution fault:\n\n");
+
+        // Error Diagnostics (Using your exact logic but XP formatting)
+        if (i < 17) {
+            // XP often uppercase errors, and doesn't always use padding
+            printf("Error: %s\n", exception_names[i]);
+            printf("\nSTOP: 0x%08x (0x%08x, 0x%08x, 0x%08x, 0x%08x)\n\n", exception_codes[i], code, 0, 0, 0);
+        } else {
+            printf("Error: Unknown Exception %d\n", i);
+            printf("\nSTOP: 0x%08x (0x%08x, 0x%08x, 0x%08x, 0x%08x)\n\n", i, code, 0, 0, 0);
+        }
+
+        // XP Specific Instructions
+        printf("If this is the first time you've seen this Stop error screen,\n");
+        printf("restart your computer. If this screen appears again, follow\n");
+        printf("these steps:\n\n");
+
+        printf("Check to make sure any new hardware or software is properly installed.\n");
+        printf("If this is a new installation, ask your hardware or software manufacturer\n");
+        printf("for any DoorsOS updates you might need.\n\n");
+
+        // Reference link (Replacing memory dumps for NexShell)
+        printf("Technical information:\n");
+        printf("Visit https://xpdevs.github.io/ErrorCodes for details.\n\n");
+
+        printf("Collecting data for crash dump...\n");
+        printf("Initializing disk for crash dump...\n");
+        
+        printf("\nPress [ENTER] to reboot.");
+
+        // Input Polling Loop
+        while(1) {
+            // Check keyboard status and scan code for Enter (0x1C)
+            if ((inb(0x64) & 1) && inb(0x60) == 0x1C) {
+                printf("\f\n  REBOOTING...");
+                reboot();
+            }
+        }
 	}
 }
 

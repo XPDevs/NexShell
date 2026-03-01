@@ -24,6 +24,7 @@ extern int ms_middle;
 extern void mouse_refresh();
 extern void mouse_set_cursor(int type);
 extern void FORCE_MENU();
+/* extern uint32_t phys_mem_upper; */
 
 // Embedded HTML5 content
 static const char *html_content = 
@@ -54,12 +55,18 @@ static const char *html_content =
         function goBack() { \
             exit(); \
         } \
+         function reboot() { \
+            reboot(); \
+         } \
     </script> \
 </head> \
 <body> \
     <h1>Welcome to the test page</h1> \
     <br> \
     <button onclick=\"goBack()\">Go Back</button> \
+    <br> \
+    <br> \
+    <button onclick=\"reboot()\">Reboot</button> \
 </body> \
 </html>";
 
@@ -184,10 +191,10 @@ static void parse_css_block(const char *block, struct render_style *s) {
     
     // Very basic parser: split by ;
     while (*p) {
-        char *end = strchr(p, ';');
+        char *end = (char *)strchr(p, ';');
         if (end) *end = 0;
         
-        char *colon = strchr(p, ':');
+        char *colon = (char *)strchr(p, ':');
         if (colon) {
             *colon = 0;
             char *val = colon + 1;
@@ -359,6 +366,9 @@ static int run_js_script(const char *script) {
             return 1;
         } else if (!strncmp(p, "goBack()", 8)) {
             return 1;
+        } else if (!strncmp(p, "reboot()", 8)) {
+            reboot();
+            return 0;
         } else if (!strncmp(p, "onButton()", 10)) {
             return 1; // Map to exit for this demo
         } else {
@@ -459,6 +469,7 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
                 }
             } else if (!in_style && !in_script) {
                 sp++;
+                if (sp >= 16) sp = 15; // Prevent stack overflow
                 struct dom_node *node = &stack[sp];
                 strcpy(node->tag, tag);
                 node->cls[0] = 0;
@@ -495,19 +506,22 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
                 }
                 
                 // Tag Defaults
-                if (!strcmp(tag, "head") || !strcmp(tag, "script") || !strcmp(tag, "style") || !strcmp(tag, "meta") || !strcmp(tag, "link") || !strcmp(tag, "title") || !strcmp(tag, "template")) {
+                if (!strcmp(tag, "head") || !strcmp(tag, "script") || !strcmp(tag, "style") || !strcmp(tag, "meta") || !strcmp(tag, "link") || !strcmp(tag, "title") || !strcmp(tag, "template") || !strcmp(tag, "noscript") || !strcmp(tag, "base") || !strcmp(tag, "source") || !strcmp(tag, "track") || !strcmp(tag, "param") || !strcmp(tag, "col") || !strcmp(tag, "datalist") || !strcmp(tag, "area") || !strcmp(tag, "optgroup") || !strcmp(tag, "option") || !strcmp(tag, "slot") || !strcmp(tag, "shadow") || !strcmp(tag, "content") || !strcmp(tag, "rp")) {
                     node->style.display = 2; // None
-                } else if (!strcmp(tag, "div") || !strcmp(tag, "p") || !strcmp(tag, "h1") || !strcmp(tag, "h2") || !strcmp(tag, "h3") || !strcmp(tag, "h4") || !strcmp(tag, "h5") || !strcmp(tag, "h6") || !strcmp(tag, "ul") || !strcmp(tag, "ol") || !strcmp(tag, "li") || !strcmp(tag, "dl") || !strcmp(tag, "dt") || !strcmp(tag, "dd") || !strcmp(tag, "blockquote") || !strcmp(tag, "pre") || !strcmp(tag, "hr") || !strcmp(tag, "header") || !strcmp(tag, "footer") || !strcmp(tag, "main") || !strcmp(tag, "section") || !strcmp(tag, "article") || !strcmp(tag, "aside") || !strcmp(tag, "nav") || !strcmp(tag, "figure") || !strcmp(tag, "figcaption") || !strcmp(tag, "details") || !strcmp(tag, "summary") || !strcmp(tag, "dialog") || !strcmp(tag, "form") || !strcmp(tag, "fieldset") || !strcmp(tag, "legend") || !strcmp(tag, "table") || !strcmp(tag, "tr") || !strcmp(tag, "thead") || !strcmp(tag, "tbody") || !strcmp(tag, "tfoot")) {
+                } else if (!strcmp(tag, "html") || !strcmp(tag, "body") || !strcmp(tag, "div") || !strcmp(tag, "p") || !strcmp(tag, "h1") || !strcmp(tag, "h2") || !strcmp(tag, "h3") || !strcmp(tag, "h4") || !strcmp(tag, "h5") || !strcmp(tag, "h6") || !strcmp(tag, "ul") || !strcmp(tag, "ol") || !strcmp(tag, "li") || !strcmp(tag, "dl") || !strcmp(tag, "dt") || !strcmp(tag, "dd") || !strcmp(tag, "blockquote") || !strcmp(tag, "pre") || !strcmp(tag, "hr") || !strcmp(tag, "header") || !strcmp(tag, "footer") || !strcmp(tag, "main") || !strcmp(tag, "section") || !strcmp(tag, "article") || !strcmp(tag, "aside") || !strcmp(tag, "nav") || !strcmp(tag, "figure") || !strcmp(tag, "figcaption") || !strcmp(tag, "details") || !strcmp(tag, "summary") || !strcmp(tag, "dialog") || !strcmp(tag, "form") || !strcmp(tag, "fieldset") || !strcmp(tag, "legend") || !strcmp(tag, "table") || !strcmp(tag, "tr") || !strcmp(tag, "thead") || !strcmp(tag, "tbody") || !strcmp(tag, "tfoot") || !strcmp(tag, "hgroup") || !strcmp(tag, "search") || !strcmp(tag, "menu") || !strcmp(tag, "caption") || !strcmp(tag, "colgroup") || !strcmp(tag, "address") || !strcmp(tag, "center")) {
                     node->style.display = 1; // Block
-                } else if (!strcmp(tag, "img") || !strcmp(tag, "video") || !strcmp(tag, "audio") || !strcmp(tag, "canvas") || !strcmp(tag, "iframe") || !strcmp(tag, "embed") || !strcmp(tag, "object") || !strcmp(tag, "input") || !strcmp(tag, "button") || !strcmp(tag, "select") || !strcmp(tag, "textarea") || !strcmp(tag, "progress") || !strcmp(tag, "meter")) {
+                } else if (!strcmp(tag, "img") || !strcmp(tag, "video") || !strcmp(tag, "audio") || !strcmp(tag, "canvas") || !strcmp(tag, "iframe") || !strcmp(tag, "embed") || !strcmp(tag, "object") || !strcmp(tag, "input") || !strcmp(tag, "button") || !strcmp(tag, "select") || !strcmp(tag, "textarea") || !strcmp(tag, "progress") || !strcmp(tag, "meter") || !strcmp(tag, "picture") || !strcmp(tag, "svg") || !strcmp(tag, "keygen") || !strcmp(tag, "math") || !strcmp(tag, "portal") || !strcmp(tag, "fencedframe") || !strcmp(tag, "model-viewer")) {
                     node->style.display = 3; // Inline-Block
                 }
                 
                 if (!strcmp(tag, "pre")) node->style.white_space = 1;
-                if (!strcmp(tag, "b") || !strcmp(tag, "strong") || !strcmp(tag, "h1") || !strcmp(tag, "h2") || !strcmp(tag, "h3") || !strcmp(tag, "th")) node->style.bold = 1;
+                if (!strcmp(tag, "b") || !strcmp(tag, "strong") || !strcmp(tag, "h1") || !strcmp(tag, "h2") || !strcmp(tag, "h3") || !strcmp(tag, "h4") || !strcmp(tag, "h5") || !strcmp(tag, "h6") || !strcmp(tag, "th")) node->style.bold = 1;
                 if (!strcmp(tag, "i") || !strcmp(tag, "em") || !strcmp(tag, "cite") || !strcmp(tag, "dfn") || !strcmp(tag, "var") || !strcmp(tag, "address")) node->style.italic = 1;
-                if (!strcmp(tag, "u") || !strcmp(tag, "ins")) node->style.underline = 1;
+                if (!strcmp(tag, "u") || !strcmp(tag, "ins") || !strcmp(tag, "a")) node->style.underline = 1;
                 if (!strcmp(tag, "s") || !strcmp(tag, "del") || !strcmp(tag, "strike")) node->style.strike = 1;
+                if (!strcmp(tag, "mark")) { node->style.bg = (struct graphics_color){255, 255, 0, 0}; }
+                if (!strcmp(tag, "code") || !strcmp(tag, "kbd") || !strcmp(tag, "samp")) { node->style.bg = (struct graphics_color){50, 50, 50, 0}; node->style.fg = (struct graphics_color){200, 200, 200, 0}; }
+                if (!strcmp(tag, "a")) { node->style.fg = (struct graphics_color){0, 0, 255, 0}; }
                 
                 // Apply styles
                 get_style_for(tag, node->cls[0] ? node->cls : 0, &node->style);
@@ -570,12 +584,18 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
                 }
                 
                 // Render specific tag visuals
+                if (!strcmp(tag, "br")) {
+                    if (sp > 0) {
+                        stack[sp-1].x = 20;
+                        stack[sp-1].y += 16;
+                    }
+                }
                 if (!strcmp(tag, "hr")) {
                     if (draw) {
                         graphics_fgcolor(g, (struct graphics_color){128,128,128,0});
                         graphics_line(g, 20, node->y+8, screen_w-40, 0);
                     }
-                    node->y += 16;
+                    if (sp > 0) stack[sp-1].y += 16;
                 }
                 if (!strcmp(tag, "button")) {
                     if (draw) {
@@ -659,6 +679,11 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
                 }
                 
                 } // End !hidden
+
+                // Handle void tags (self-closing)
+                int is_void = 0;
+                if (tag[0] == '!' || !strcmp(tag, "br") || !strcmp(tag, "hr") || !strcmp(tag, "img") || !strcmp(tag, "input") || !strcmp(tag, "meta") || !strcmp(tag, "link") || !strcmp(tag, "base") || !strcmp(tag, "area") || !strcmp(tag, "col") || !strcmp(tag, "embed") || !strcmp(tag, "param") || !strcmp(tag, "source") || !strcmp(tag, "track") || !strcmp(tag, "wbr") || !strcmp(tag, "keygen")) is_void = 1;
+                if (is_void && sp > 0) sp--;
             }
             
             while (*p && *p != '>') p++;
@@ -685,7 +710,10 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
                 p--; // Backtrack one for loop
                 
                 if (node->x + wi * 8 > screen_w - 20) { node->x = 20; node->y += 16; }
-                draw_text_styled(draw ? g : 0, &node->x, node->y, word, node->style.fg, node->style.bg, node->style.bold, node->style.italic, node->style.underline, node->style.strike);
+                int y_offset = 0;
+                if (!strcmp(node->tag, "sub")) y_offset = 4;
+                if (!strcmp(node->tag, "sup")) y_offset = -4;
+                draw_text_styled(draw ? g : 0, &node->x, node->y + y_offset, word, node->style.fg, node->style.bg, node->style.bold, node->style.italic, node->style.underline, node->style.strike);
             }
             
             if (in_style && style_idx < 2047) {
@@ -704,8 +732,30 @@ static int render_html(struct graphics *g, int scroll_y, int execute_js, int dra
 }
 
 int GUI() {
+    uint32_t phys_mem_upper = total_memory * 1024 * 1024;
+    if (phys_mem_upper < 0x80000000) { // Check for 2GB
+        printf("\f");
+        printf("Warning: Inadequate RAM detected.\n");
+        printf("2GB of RAM is recommended for the GUI to run correctly.\n");
+        printf("Do you want to force run? (Y/N): ");
+        while(1) {
+            char c = console_getchar(&console_root);
+            if (c == 'y' || c == 'Y') {
+                printf("%c\n", c);
+                break;
+            } else if (c == 'n' || c == 'N') {
+                printf("%c\n", c);
+                return 0;
+            }
+        }
+    }
+
     interrupt_disable(44);
     printf("\f"); // Clear console
+
+    if (phys_mem_upper >= 0x80000000) {
+        // 2GB RAM available for GUI usage
+    }
 
     struct graphics *g = &graphics_root;
     

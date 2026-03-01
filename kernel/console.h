@@ -32,6 +32,7 @@ struct console * console_create( struct window *w );
 struct console * console_addref( struct console *c );
 void console_delete( struct console *c );
 
+void console_set_color(struct graphics_color fg, struct graphics_color bg);
 void console_reset( struct console *c );
 int  console_post( struct console *c, const char *data, int length );
 int  console_write( struct console *c, const char *data, int length );

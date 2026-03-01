@@ -17,6 +17,7 @@ int sys_open_file( int fd, const char *path, int mode, kernel_flags_t flags );
 int sys_mkdir( int fd, const char *path);
 int sys_rmdir(int fd, const char *path);
 int sys_object_close( int fd );
+int sys_object_read(int fd, void *data, int length, kernel_io_flags_t flags );
 
 int sys_open_window(int wd, int x, int y, int w, int h);
 int sys_process_object_max();

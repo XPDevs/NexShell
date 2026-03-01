@@ -26,6 +26,12 @@ struct console console_root = {0};
 static struct graphics_color bgcolor = { 0, 0, 0 };
 static struct graphics_color fgcolor = { 255, 255, 255 };
 
+void console_set_color(struct graphics_color fg, struct graphics_color bg)
+{
+	fgcolor = fg;
+	bgcolor = bg;
+}
+
 // New boot message function
 void bootmsg(struct console *c) {
         console_putstring(c, "\f\n");
