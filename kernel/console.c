@@ -30,6 +30,10 @@ void console_set_color(struct graphics_color fg, struct graphics_color bg)
 {
 	fgcolor = fg;
 	bgcolor = bg;
+	if(console_root.gx) {
+		graphics_fgcolor(console_root.gx, fg);
+		graphics_bgcolor(console_root.gx, bg);
+	}
 }
 
 // New boot message function
@@ -135,9 +139,9 @@ int console_write( struct console *d, const char *data, int size )
 		}
 
 if (d->ypos >= d->ysize) {
-	graphics_clear(d->gx, 0, 0, graphics_width(d->gx), graphics_height(d->gx));
+	graphics_scrollup(d->gx, 0, 0, graphics_width(d->gx), graphics_height(d->gx), 8);
 	d->xpos = 0;
-	d->ypos = 0;
+	d->ypos--;
 }
 
 

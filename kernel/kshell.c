@@ -42,6 +42,12 @@ The current version is 1.2.9
 #define SLP_EN      (1 << 13)
 
 static char current_working_directory[1024] = "/";
+static int cursor_pid = 0;
+extern int boot_screen_w;
+extern int boot_screen_h;
+void mouse_cursor_task(void);
+void create_cursor_task(void);
+void mouse_hide(void);
 
 static int kshell_mount( const char *devname, int unit, const char *fs_type)
 {
@@ -212,6 +218,10 @@ static int kshell_execute(int argc, const char **argv)
         if (argc > 1) {
             int pid;
             if (str2int(argv[1], &pid)) {
+                if (pid == current->pid) {
+                    printf("Attempted to kill kernel shell! PANIC!\n");
+                    __asm__ __volatile__("ud2");
+                }
                 process_kill(pid);
             } else {
                 printf("kill: expected process id number but got %s\n", argv[1]);
@@ -467,6 +477,15 @@ static int kshell_execute(int argc, const char **argv)
         start_gui();
     } else if (!strcmp(cmd, "list-drives")) {
         list_drives();
+    } else if (!strcmp(cmd, "list-proc")) {
+        process_list();
+    } else if (!strcmp(cmd, "cursor-init")) {
+        if (cursor_pid > 0) {
+            process_kill(cursor_pid);
+            mouse_hide();
+        }
+        create_cursor_task();
+        printf("Cursor task started.\n");
 // TEST COMMAND
     } else if (!strcmp(cmd, "test_input")) {
         test_input();
@@ -598,6 +617,8 @@ if (current->ktable[KNO_STDDIR]) {
         printf("help <command>\n");
         printf("contents <file>\n");
         printf("list-drives\n");
+        printf("list-proc\n");
+        printf("cursor-init\n");
         printf("cowsay\n\n");
         printf("cd <dir>\n");
         printf("pwd\n");
@@ -1143,6 +1164,10 @@ void mouse_hide(void) {
 }
 
 static void mouse_draw_handler(int intr, int code) {
+    if (cursor_pid <= 0 || !process_table[cursor_pid] || process_table[cursor_pid]->state == PROCESS_STATE_GRAVE) {
+        return;
+    }
+
     uint8_t status = inb(0x64);
     if (!(status & 0x01)) return;
     if (!(status & 0x20)) return; // Only process AUX data
@@ -1185,9 +1210,9 @@ static void mouse_draw_handler(int intr, int code) {
 
         // 3. Clamp
         if (ms_mx < 0) ms_mx = 0;
-        if (ms_mx > MS_WIDTH-16) ms_mx = MS_WIDTH-16;
+        if (ms_mx >= MS_WIDTH) ms_mx = MS_WIDTH - 1;
         if (ms_my < 0) ms_my = 0;
-        if (ms_my > MS_HEIGHT-16) ms_my = MS_HEIGHT-16;
+        if (ms_my >= MS_HEIGHT) ms_my = MS_HEIGHT - 1;
 
         // 4. Save New Background
         for (int y=0; y<16; y++) {
@@ -1247,6 +1272,31 @@ void mouse_cursor_task(void) {
     // This replaces the default handler in kernel/mouse.c
     interrupt_register(44, mouse_draw_handler);
     interrupt_enable(44); // Ensure PIC enables it
+    cursor_pid = current->pid;
+}
+
+void mouse_cursor_thread() {
+    mouse_cursor_task();
+    while(1) {
+        process_yield();
+    }
+}
+
+void create_cursor_task() {
+    struct process *p = process_create();
+    if (!p) {
+        printf("Failed to create cursor task\n");
+        return;
+    }
+    struct x86_stack *s = (struct x86_stack *)p->kstack_ptr;
+    s->eip = (unsigned)mouse_cursor_thread;
+    s->cs = 0x08; // Kernel Code
+    s->ds = 0x10; // Kernel Data
+    s->es = 0x10;
+    
+    strcpy(p->name, "CURSOR");
+
+    process_launch(p);
 }
 
 extern int GUI();
@@ -1255,13 +1305,29 @@ int start_gui() {
     return GUI();
 }
 
-
+static int is_64bit_capable() {
+    uint32_t eax, ebx, ecx, edx;
+    __asm__ __volatile__("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(0x80000000));
+    if (eax < 0x80000001) return 0;
+    __asm__ __volatile__("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(0x80000001));
+    return (edx & (1 << 29));
+}
 
 void neofetch() {
-    const char *architecture = "x86";
+    const char *cpu_arch = is_64bit_capable() ? "64-bit" : "32-bit";
+    const char *os_arch = "32-bit";
     const char *shell = "Kshell";
-    uint16_t width = *(uint16_t*)BOOT_INFO_SCREEN_WIDTH;
-    uint16_t height = *(uint16_t*)BOOT_INFO_SCREEN_HEIGHT;
+    int width = boot_screen_w;
+    int height = boot_screen_h;
+
+    clock_t uptime = clock_read();
+    int up_seconds = uptime.seconds;
+    int days = up_seconds / 86400;
+    up_seconds %= 86400;
+    int hours = up_seconds / 3600;
+    up_seconds %= 3600;
+    int minutes = up_seconds / 60;
+    int seconds = up_seconds % 60;
 
     printf("\n");
     printf("|----------------------------------------------------------|\n");
@@ -1269,9 +1335,10 @@ void neofetch() {
     printf("|                  (C)Copyright 2026 XPDevs                |\n");
     printf("|                     Build id: JN210126                   |\n");
     printf("|----------------------------------------------------------|\n");
-    printf("| Architecture: %s\n", architecture);
+    printf("| Architecture: CPU: %s / OS: %s\n", cpu_arch, os_arch);
     printf("| Shell: %s\n", shell);
     printf("| Video: %d x %d (%d, %d)\n", width, height, width / 2, height / 2);
+    printf("| Uptime: %d days, %d hours, %d mins, %d secs\n", days, hours, minutes, seconds);
     printf("| Memory: %d MB", total_memory);
     if (total_memory >= 1024) {
         if (total_memory % 1024 == 0) {
@@ -1294,16 +1361,14 @@ int kshell_launch()
 	const char *argv[100];
 	int argc;
 // everything past here for control
-printf("ACPI: initialized");
+printf("ACPI: initialized\n");
 
 
 // after automounting the disk clear the screen for more space for displaying content after that wait to ensure nothing feels to rushed
 automount();
 
-printf("\f");
-// clear
         //launch the cursor before the main things
-        mouse_cursor_task();
+        create_cursor_task();
 
 // then go straight into the GUI but command line if it has any errors
 start_gui();
@@ -1311,9 +1376,9 @@ start_gui();
 	// When GUI exits, it leaves us in graphics mode.
 	// Reset the foreground/background colors for the console.
 	struct graphics_color white = {255, 255, 255, 0};
+	// Black background for the shell.
 	struct graphics_color black = {0, 0, 0, 0};
-	graphics_fgcolor(&graphics_root, white);
-	graphics_bgcolor(&graphics_root, black);
+	console_set_color(white, black);
 	printf("\f"); // Clear screen with new background color
 
 	while(1) {

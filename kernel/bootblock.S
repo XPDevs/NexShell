@@ -126,8 +126,6 @@ loaddone:
     mov     $(bootmsg), %si
     call    bios_putstring
 
-    call    set_video_mode
-
     mov     $0x1000, %ax       # KERNEL_SEGMENT = 0x1000
     mov     %ax, %ds
     ljmp    $0x1000, $0x0000   # KERNEL_SEGMENT:KERNEL_OFFSET
@@ -143,63 +141,6 @@ load_error:
 halt_loop:
     hlt
     jmp     halt_loop
-
-# -----------------------------------------------------------------------------
-# Video Mode
-# -----------------------------------------------------------------------------
-
-set_video_mode:
-    # Get VBE mode information for mode 0x101
-    push    %es
-    mov     $0x0800, %ax
-    mov     %ax, %es            # es = 0x0800, for temp buffer
-    xor     %di, %di            # es:di = 0x8000
-    mov     $0x4F01, %ax
-    mov     $0x101, %cx
-    int     $0x10
-    cmp     $0x004F, %ax
-    jne     .fail
-
-    # VBE call successful, get dimensions
-    # Reload es to ensure it points to the buffer
-    mov     $0x0800, %ax
-    mov     %ax, %es
-    movw    %es:0x12, %cx # XResolution
-    movw    %es:0x14, %dx # YResolution
-    pop     %es
-
-    # Store dimensions at 0x9000
-    push    %es
-    mov     $0x0900, %ax
-    mov     %ax, %es
-    movw    %cx, %es:0
-    movw    %dx, %es:2
-    pop     %es
-
-    # Set video mode
-    mov     $0x4F02, %ax
-    mov     $0x4101, %bx       # Mode 0x101 with Linear Frame Buffer (bit 14)
-    int     $0x10
-    jc      set_text_mode
-    ret
-
-.fail:
-    pop     %es
-    jmp     set_text_mode
-
-set_text_mode:
-    # Store default dimensions at 0x9000
-    push    %es
-    mov     $0x0900, %ax
-    mov     %ax, %es
-    movw    $80, %es:0
-    movw    $25, %es:2
-    pop     %es
-
-    mov     $0x00, %ah
-    mov     $0x03, %al
-    int     $0x10
-    ret
 
 # -----------------------------------------------------------------------------
 # BIOS Utility Functions

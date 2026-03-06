@@ -43,6 +43,7 @@ struct process {
 	uint32_t vm_data_size;
 	uint32_t vm_stack_size;
 	uint32_t waiting_for_child_pid;
+	char name[32];
 };
 
 void process_init();
@@ -80,7 +81,9 @@ int process_wait_child(uint32_t pid, struct process_info *info, int timeout);
 int process_reap(uint32_t pid);
 
 int process_stats(int pid, struct process_stats *stat);
+void process_list();
 
 extern struct process *current;
+extern struct process *process_table[PROCESS_MAX_PID];
 
 #endif

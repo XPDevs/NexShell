@@ -141,6 +141,11 @@ int graphics_write(struct graphics *g, int *cmd, int length )
 	return 0;
 }
 
+int graphics_is_initialized(struct graphics *g)
+{
+	return g && g->bitmap != 0;
+}
+
 uint32_t graphics_width(struct graphics * g)
 {
 	return g->clip.w;

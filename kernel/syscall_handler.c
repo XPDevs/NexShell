@@ -125,6 +125,10 @@ int sys_process_run( int fd, int argc, const char **argv)
 		process_stack_reset(p, PAGE_SIZE);
 		process_kstack_reset(p, entry);
 		process_pass_arguments(p, argc, copy_argv);
+		if (argc > 0) {
+			strncpy(p->name, copy_argv[0], 31);
+			p->name[31] = 0;
+		}
 	}
 
 	/* SWITCH BACK TO ADDRESS SPACE OF PARENT PROCESS */
@@ -174,6 +178,10 @@ int sys_process_wrun( int fd, int argc, const char **argv, int *fds, int fd_len)
 		process_stack_reset(p, PAGE_SIZE);
 		process_kstack_reset(p, entry);
 		process_pass_arguments(p, argc, copy_argv);
+		if (argc > 0) {
+			strncpy(p->name, copy_argv[0], 31);
+			p->name[31] = 0;
+		}
 	}
 
 	/* SWITCH BACK TO ADDRESS SPACE OF PARENT PROCESS */
@@ -222,6 +230,10 @@ int sys_process_exec( int fd, int argc, const char **argv)
 	process_stack_reset(current, PAGE_SIZE);
 	process_kstack_reset(current, entry);
 	process_pass_arguments(current, argc, copy_argv);
+	if (argc > 0) {
+		strncpy(current->name, copy_argv[0], 31);
+		current->name[31] = 0;
+	}
 
 	/* Delete the local copy of the arguments. */
 	argv_delete(argc, copy_argv);
@@ -247,6 +259,8 @@ int sys_process_fork()
 	p->pagetable = pagetable_duplicate(current->pagetable);
 	process_inherit(current, p);
 	process_kstack_copy(current, p);
+	strncpy(p->name, current->name, 31);
+	p->name[31] = 0;
 	process_launch(p);
 	return p->pid;
 }

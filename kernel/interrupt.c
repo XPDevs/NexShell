@@ -89,7 +89,6 @@ static void unknown_exception(int i, int code)
 		if (page_already_present || !(data_access ^ stack_access)) {
 			printf("interrupt: illegal page access at vaddr %x\n",vaddr);
 			process_dump(current);
-			process_exit(0);
 		} else {
 			// XXX update process->vm_stack_size when growing the stack.
 			pagetable_alloc(current->pagetable, vaddr, PAGE_SIZE, PAGE_FLAG_USER | PAGE_FLAG_READWRITE | PAGE_FLAG_CLEAR);
@@ -102,16 +101,10 @@ static void unknown_exception(int i, int code)
 		}
 	}
 
-	if(current) {
-		process_exit(0);
-	} else {
-		
 		// Establish the DoorsOS Panic Palette
 // Establish the DoorsOS Panic Palette (Urgent Red)
 struct graphics_color red = {255, 0, 0, 0};   // Full Red, 0 Green, 0 Blue
 struct graphics_color white = {255, 255, 255, 0};
-
-// Set the console: White text on a Red background
 console_set_color(white, red);
         
         printf("\f"); // Clear screen to blue
@@ -126,14 +119,16 @@ console_set_color(white, red);
         if (i < 17) {
             // XP often uppercase errors, and doesn't always use padding
             printf("Error: %s\n", exception_names[i]);
-            printf("\nSTOP: 0x%08x (0x%08x, 0x%08x, 0x%08x, 0x%08x)\n\n", exception_codes[i], code, 0, 0, 0);
+            printf("\nSTOP: 0x%x (0x%x, 0x%x, 0x%x, 0x%x)\n\n", exception_codes[i], code, 0, 0, 0);
+			process_dump(current);
         } else {
             printf("Error: Unknown Exception %d\n", i);
-            printf("\nSTOP: 0x%08x (0x%08x, 0x%08x, 0x%08x, 0x%08x)\n\n", i, code, 0, 0, 0);
+            printf("\nSTOP: 0x%x (0x%x, 0x%x, 0x%x, 0x%x)\n\n", i, code, 0, 0, 0);
+			process_dump(current);
         }
 
         // XP Specific Instructions
-        printf("If this is the first time you've seen this Stop error screen,\n");
+        printf("\nIf this is the first time you've seen this Stop error screen,\n");
         printf("restart your computer. If this screen appears again, follow\n");
         printf("these steps:\n\n");
 
@@ -144,9 +139,6 @@ console_set_color(white, red);
         // Reference link (Replacing memory dumps for NexShell)
         printf("Technical information:\n");
         printf("Visit https://xpdevs.github.io/ErrorCodes for details.\n\n");
-
-        printf("Collecting data for crash dump...\n");
-        printf("Initializing disk for crash dump...\n");
         
         printf("\nPress [ENTER] to reboot.");
 
@@ -158,7 +150,6 @@ console_set_color(white, red);
                 reboot();
             }
         }
-	}
 }
 
 static void unknown_hardware(int i, int code)

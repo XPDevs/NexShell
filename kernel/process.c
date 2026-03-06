@@ -219,6 +219,7 @@ struct process *process_create()
 	}
 
 	p->state = PROCESS_STATE_READY;
+	memset(p->name, 0, 32);
 
 	return p;
 }
@@ -558,4 +559,77 @@ int process_stats(int pid, struct process_stats *s)
 	}
 	*s = process_table[pid]->stats;
 	return 0;
+}
+
+void process_list()
+{
+	int i;
+	int total_procs = 0;
+	int running = 0;
+	int sleeping = 0;
+	int zombie = 0;
+	int ready = 0;
+
+	for(i = 0; i < PROCESS_MAX_PID; i++) {
+		if(process_table[i]) {
+			total_procs++;
+			switch(process_table[i]->state) {
+				case PROCESS_STATE_RUNNING: running++; break;
+				case PROCESS_STATE_READY: ready++; break;
+				case PROCESS_STATE_BLOCKED: sleeping++; break;
+				case PROCESS_STATE_GRAVE: zombie++; break;
+			}
+		}
+	}
+
+	clock_t uptime = clock_read();
+	int up_seconds = uptime.seconds;
+	int days = up_seconds / 86400;
+	up_seconds %= 86400;
+	int hours = up_seconds / 3600;
+	up_seconds %= 3600;
+	int minutes = up_seconds / 60;
+	int seconds = up_seconds % 60;
+
+	uint32_t nfree, ntotal;
+	page_stats(&nfree, &ntotal);
+	uint32_t total_mem_kb = ntotal * (PAGE_SIZE / 1024);
+	uint32_t free_mem_kb = nfree * (PAGE_SIZE / 1024);
+	uint32_t used_mem_kb = total_mem_kb - free_mem_kb;
+
+	printf("top - up %d days, %d:%d:%d\n", days, hours, minutes, seconds);
+	printf("Tasks: %d total, %d running, %d ready, %d sleeping, %d zombie\n", 
+		   total_procs, running, ready, sleeping, zombie);
+	printf("Mem: %d KB total, %d KB used, %d KB free\n", total_mem_kb, used_mem_kb, free_mem_kb);
+	printf("\n");
+
+	printf("PID   PPID  STATE    MEM(KB)  NAME\n");
+	for(i = 0; i < PROCESS_MAX_PID; i++) {
+		if(process_table[i]) {
+			struct process *p = process_table[i];
+			const char *state;
+			switch(p->state) {
+			case PROCESS_STATE_CRADLE:
+				state = "CRADLE ";
+				break;
+			case PROCESS_STATE_READY:
+				state = "READY  ";
+				break;
+			case PROCESS_STATE_RUNNING:
+				state = "RUNNING";
+				break;
+			case PROCESS_STATE_BLOCKED:
+				state = "BLOCKED";
+				break;
+			case PROCESS_STATE_GRAVE:
+				state = "GRAVE  ";
+				break;
+			default:
+				state = "UNKNOWN";
+				break;
+			}
+			uint32_t mem_kb = (p->vm_data_size + p->vm_stack_size) / 1024;
+			printf("%d     %d     %s  %d       %s\n", p->pid, p->ppid, state, mem_kb, p->name);
+		}
+	}
 }
