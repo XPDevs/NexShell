@@ -12,5 +12,7 @@ for the NexShell kernel
 #define GUI_H
 
 int GUI();
+void gui_boot_init(void);
+void gui_draw_boot_screen(int progress, int fade_step);
 
 #endif

@@ -40,6 +40,15 @@ void kmalloc_init(char *start, int length)
 	}
 	*probe = 0;
 
+	// Also probe the end of the heap to ensure the full length is valid
+	probe = start + length - 1;
+	char save = *probe;
+	*probe = 0x55;
+	if (*probe != 0x55) {
+		printf("kmalloc: warning: heap end at %x not accessible\n", start + length);
+	}
+	*probe = save;
+
 	head = (struct kmalloc_chunk *) start;
 	head->state = KMALLOC_STATE_FREE;
 	head->length = length;

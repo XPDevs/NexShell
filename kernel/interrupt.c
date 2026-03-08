@@ -95,6 +95,19 @@ static void unknown_exception(int i, int code)
 			return;
 		}
 	} else {
+		// SAFEGUARD: If a user process crashes, kill it instead of panicking the kernel.
+		if (current) {
+			struct x86_stack *s = (struct x86_stack *)(current->kstack_top - sizeof(struct x86_stack));
+			// Check CS register (bottom 2 bits) to see if we were in user mode (Ring 3)
+			if ((s->cs & 3) == 3) {
+				printf("\nApplication Error: Exception %d (%s) in process %d (%s).\n", i, exception_names[i], current->pid, current->name);
+				printf("Force closing application...\n");
+				process_kill(current->pid);
+				process_yield();
+				return;
+			}
+		}
+
 		if (current) {
 			printf("interrupt: exception %d: %s (code %x)\n", i, exception_names[i], code);
 			process_dump(current);

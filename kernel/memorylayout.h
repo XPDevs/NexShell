@@ -59,7 +59,7 @@ memory allocations for internal kernel purposes.
 */
 
 #define KMALLOC_START  0x100000
-#define KMALLOC_LENGTH 0x100000
+#define KMALLOC_LENGTH 0x2000000
 
 /*
 Main memory starts at the 2MB boundary following the kmalloc area.
@@ -68,7 +68,7 @@ be consumed by either the kernel or user processes.  The end of
 main memory is determined dynamically at bootup time.
 */
 
-#define MAIN_MEMORY_START  0x200000
+#define MAIN_MEMORY_START  0x2100000
 
 /*
 We choose the user-mode address space to begin at 0x80000000,

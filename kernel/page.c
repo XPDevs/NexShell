@@ -28,7 +28,12 @@ void page_init()
 {
 	int i;
 
-	pages_total = (total_memory * 1024 * 1024 - MAIN_MEMORY_START) / PAGE_SIZE;
+	uint64_t mem_bytes = (uint64_t)total_memory * 1024 * 1024;
+	if (mem_bytes > MAIN_MEMORY_START) {
+		pages_total = (mem_bytes - MAIN_MEMORY_START) / PAGE_SIZE;
+	} else {
+		pages_total = 0;
+	}
 	pages_free = pages_total;
 	printf("memory: %d MB (%d KB) total\n", (pages_free * PAGE_SIZE) / MEGA, (pages_free * PAGE_SIZE) / KILO);
 
@@ -90,7 +95,6 @@ void *page_alloc(bool zeroit)
 	}
 
 	printf("memory: WARNING: everything allocated\n");
-	halt();
 
 	return 0;
 }
